@@ -1,0 +1,143 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #0B5AA8;
+  --color-primary-dark: #083E78;
+  --color-accent: #20C997;
+  --color-accent-dark: #0FAE7B;
+  --color-warning: #F59E0B;
+  --color-error: #EF4444;
+  --color-background: #F7FAFC;
+  --color-surface: #FFFFFF;
+  --color-border: #E2E8F0;
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #475569;
+
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+body {
+  background-color: #F7FAFC;
+  color: #0F172A;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+/* ─── Splash screen ─── */
+
+.splash-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #0B5AA8 0%, #083E78 60%, #052a52 100%);
+  overflow: hidden;
+}
+
+.splash-overlay.splash-exiting {
+  animation: splash-exit 0.45s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes splash-exit {
+  0%   { transform: translateY(0);      opacity: 1; }
+  100% { transform: translateY(-100%);  opacity: 0.6; }
+}
+
+/* Ripple rings */
+.splash-ripple {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid rgba(32, 201, 151, 0.5);
+  animation: splash-ripple-expand 2s ease-out infinite;
+}
+.splash-ripple-1 { width: 120px; height: 120px; animation-delay: 0s; }
+.splash-ripple-2 { width: 120px; height: 120px; animation-delay: 0.6s; }
+.splash-ripple-3 { width: 120px; height: 120px; animation-delay: 1.2s; }
+
+@keyframes splash-ripple-expand {
+  0%   { transform: scale(1);   opacity: 0.7; }
+  100% { transform: scale(3.2); opacity: 0; }
+}
+
+/* Icon entrance */
+.splash-icon-wrap {
+  position: relative;
+  z-index: 2;
+  animation: splash-icon-spring 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  opacity: 0;
+}
+
+@keyframes splash-icon-spring {
+  0%   { transform: scale(0.2); opacity: 0; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+
+/* Icon continuous heartbeat after entrance */
+.splash-icon-pulse {
+  animation:
+    splash-icon-spring 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards,
+    splash-heartbeat 1.8s ease-in-out 0.8s infinite;
+}
+
+@keyframes splash-heartbeat {
+  0%,  100% { transform: scale(1); }
+  14%        { transform: scale(1.1); }
+  28%        { transform: scale(1); }
+  42%        { transform: scale(1.07); }
+  56%        { transform: scale(1); }
+}
+
+/* Wordmark fade-up */
+.splash-wordmark {
+  opacity: 0;
+  animation: splash-fade-up 0.5s ease forwards;
+  animation-delay: 0.75s;
+}
+
+@keyframes splash-fade-up {
+  0%   { transform: translateY(14px); opacity: 0; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+
+/* Subtitle */
+.splash-subtitle {
+  opacity: 0;
+  animation: splash-fade-up 0.4s ease forwards;
+  animation-delay: 1s;
+}
+
+/* Progress bar */
+.splash-progress-track {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(255,255,255,0.1);
+}
+
+.splash-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #20C997, #0FAE7B);
+  animation: splash-progress 2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  box-shadow: 0 0 8px rgba(32, 201, 151, 0.6);
+}
+
+@keyframes splash-progress {
+  0%   { width: 0%; }
+  100% { width: 100%; }
+}
+
+/* ─── App inline loader ─── */
+.app-loader-ring {
+  animation: loader-spin 1s linear infinite;
+  transform-origin: center;
+}
+
+@keyframes loader-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
