@@ -525,3 +525,56 @@ adminRoutes.post("/appointments/:appointmentId/transition", async (c) => {
 
   return c.json({ ok: true, status: to_status });
 });
+
+// ── POST /appointments/:appointmentId/confirm-booking ─────────
+// A practice accepts a request-mode booking → set confirmed_at so the promoter
+// will queue it, and send the confirmation notification (Seam 3).
+adminRoutes.post("/appointments/:appointmentId/confirm-booking", async (c) => {
+  const ctx = staff(c);
+  const appointmentId = c.req.param("appointmentId");
+
+  const { data: appt } = await ctx.db
+    .from("appointments")
+    .select("id, status, confirmed_at, patient_id, clinics(name), patients(phone)")
+    .eq("id", appointmentId)
+    .eq("clinic_id", ctx.clinicId)
+    .maybeSingle<{
+      id: string; status: string; confirmed_at: string | null; patient_id: string;
+      clinics: { name: string } | null; patients: { phone: string | null } | null;
+    }>();
+  if (!appt) throw notFound("Booking not found.");
+  if (appt.status !== "scheduled") throw badRequest("Only a pending booking can be confirmed.");
+  if (appt.confirmed_at) return c.json({ ok: true, already: true });
+
+  const { error } = await ctx.db
+    .from("appointments")
+    .update({ confirmed_at: new Date().toISOString() })
+    .eq("id", appointmentId);
+  if (error) throw serverError(error.message);
+
+  await ctx.db.from("appointment_events").insert({
+    clinic_id: ctx.clinicId,
+    appointment_id: appointmentId,
+    actor_type: "staff",
+    actor_user_id: ctx.userId,
+    event_type: "booking_confirmed",
+  });
+
+  if (appt.clinics?.name && appt.patients?.phone) {
+    const notification = notificationForStatus("confirmed", { clinicName: appt.clinics.name });
+    if (notification) {
+      try {
+        await dispatchNotification(serviceClient(), {
+          appointmentId,
+          clinicId: ctx.clinicId,
+          to: appt.patients.phone,
+          notification,
+        });
+      } catch (err) {
+        console.error("[api] confirm-booking notification failed:", err);
+      }
+    }
+  }
+
+  return c.json({ ok: true });
+});

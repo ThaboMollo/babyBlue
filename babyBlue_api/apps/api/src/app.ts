@@ -8,6 +8,7 @@ import { getEnv } from "./env.js";
 import { patientRoutes } from "./routes/patient.js";
 import { adminRoutes } from "./routes/admin.js";
 import { peopleRoutes } from "./routes/people.js";
+import { bookingRoutes } from "./routes/booking.js";
 import type { AppEnv } from "./types.js";
 
 export function createApp() {
@@ -31,6 +32,7 @@ export function createApp() {
   app.route("/v1/patient", patientRoutes);
   app.route("/v1/admin", adminRoutes);
   app.route("/v1/people", peopleRoutes);
+  app.route("/v1/booking", bookingRoutes);
 
   // Uniform error rendering. ApiError/HTTPException carry their own JSON
   // response; anything else is an unexpected 500 (logged, not leaked).

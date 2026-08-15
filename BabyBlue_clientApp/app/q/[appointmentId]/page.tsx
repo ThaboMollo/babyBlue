@@ -14,8 +14,8 @@ import {
   isSessionInvalidError,
   submitFeedback,
 } from "@/lib/api";
-import { clearSession, loadSession } from "@/lib/session";
-import type { AppointmentView, AppointmentStatus } from "@/lib/supabase/types";
+import { clearSession, loadSession, saveSession } from "@/lib/session";
+import type { AppointmentView, AppointmentStatus, PatientSession } from "@/lib/supabase/types";
 
 const POLL_INTERVAL_MS = 7000;
 
@@ -32,9 +32,30 @@ export default function QueueViewPage() {
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [leaving, setLeaving] = useState(false);
 
-  // Lazy init: read once on mount; null during SSR (loadSession guards on window)
-  const [session] = useState(loadSession);
+  // Session is hydrated client-side: from localStorage (walk-in flow) or, when a
+  // booking hands off from the discovery app via a `?t=<access_token>` magic
+  // link, from the URL — which we then persist and strip from the address bar.
+  const [session, setSession] = useState<PatientSession | null>(null);
+  const [hydrating, setHydrating] = useState(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const token = url.searchParams.get("t");
+    if (token) {
+      const s: PatientSession = {
+        appointmentId,
+        accessToken: token,
+        clinicSlug: url.searchParams.get("c") ?? "",
+      };
+      saveSession(s);
+      setSession(s);
+      window.history.replaceState({}, "", url.pathname);
+    } else {
+      setSession(loadSession());
+    }
+    setHydrating(false);
+  }, [appointmentId]);
 
   const fetchData = useCallback(
     async (isManual = false) => {
@@ -70,6 +91,7 @@ export default function QueueViewPage() {
   );
 
   useEffect(() => {
+    if (hydrating) return; // wait until the session is resolved from URL/localStorage
     if (!session || session.appointmentId !== appointmentId) {
       router.push("/");
       return;
@@ -83,7 +105,7 @@ export default function QueueViewPage() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [appointmentId, fetchData, router, session]);
+  }, [appointmentId, fetchData, router, session, hydrating]);
 
   // Stop polling when terminal status reached
   useEffect(() => {
