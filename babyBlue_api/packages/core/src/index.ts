@@ -4,3 +4,4 @@ export * from "./identity.js";
 export * from "./retention.js";
 export * from "./consent.js";
 export * from "./types.js";
+export * from "./visit.js";
