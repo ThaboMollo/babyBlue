@@ -1,6 +1,8 @@
 import type { JoinQueueResponse, AppointmentView } from "./supabase/types";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+// The API is the single write path (spec §7.3): the client app no longer calls
+// Supabase Edge Functions directly, it goes through the Hono API.
+const API_URL = process.env.NEXT_PUBLIC_API_URL!;
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) {
@@ -14,15 +16,15 @@ export function isSessionInvalidError(err: unknown): boolean {
   return err instanceof ApiError && [401, 403, 404].includes(err.status);
 }
 
-function edgeFunctionUrl(name: string) {
-  return `${SUPABASE_URL}/functions/v1/${name}`;
+function apiUrl(path: string) {
+  return `${API_URL}/v1/patient/${path}`;
 }
 
-async function callEdgeFunction<T>(
-  name: string,
+async function callApi<T>(
+  path: string,
   body: Record<string, unknown>
 ): Promise<T> {
-  const res = await fetch(edgeFunctionUrl(name), {
+  const res = await fetch(apiUrl(path), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -52,21 +54,21 @@ export async function joinQueue(params: {
   dob?: string | null; // derived from an RSA ID on the client; re-derived server-side
   consent_records_storage?: boolean; // optional records-storage consent (method='patient_app')
 }): Promise<JoinQueueResponse> {
-  return callEdgeFunction<JoinQueueResponse>("join-queue", params);
+  return callApi<JoinQueueResponse>("join-queue", params);
 }
 
 export async function getAppointment(params: {
   appointment_id: string;
   access_token: string;
 }): Promise<AppointmentView> {
-  return callEdgeFunction<AppointmentView>("get-appointment", params);
+  return callApi<AppointmentView>("get-appointment", params);
 }
 
 export async function cancelAppointment(params: {
   appointment_id: string;
   access_token: string;
 }): Promise<void> {
-  await callEdgeFunction("cancel-appointment", params);
+  await callApi("cancel-appointment", params);
 }
 
 export async function submitFeedback(params: {
@@ -75,7 +77,7 @@ export async function submitFeedback(params: {
   rating: number;
   comment?: string;
 }): Promise<void> {
-  await callEdgeFunction("submit-feedback", params);
+  await callApi("submit-feedback", params);
 }
 
 export async function submitIntake(params: {
@@ -88,5 +90,5 @@ export async function submitIntake(params: {
     answer: string;
   }[];
 }): Promise<void> {
-  await callEdgeFunction("submit-intake", params);
+  await callApi("submit-intake", params);
 }

@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { X } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { callApi } from "@/lib/api";
 import { validatePatientIdentity } from "@/lib/identity";
-import { createWalkIn } from "@/app/(portal)/queue/actions";
 import type { IdType } from "@/types";
 
 interface Props {
@@ -51,26 +52,37 @@ export default function AddWalkInModal({ onClose, onSuccess }: Props) {
     }
 
     setLoading(true);
-    const result = await createWalkIn({
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      nationality: nationality.trim(),
-      idType,
-      idNumber: idNumber.trim(),
-      phone: phone.trim(),
-      phoneIsWhatsapp,
-      whatsappNumber: phoneIsWhatsapp ? undefined : whatsappNumber.trim(),
-      email: email.trim() || undefined,
-      dob: effectiveDob || undefined,
-    });
-
-    if ("error" in result) {
-      setError(result.error);
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) {
+      setError("Session expired — please sign in again.");
       setLoading(false);
       return;
     }
 
-    onSuccess(`Added to queue — position #${result.position}`);
+    try {
+      const result = await callApi<{ ok: true; position: number }>("/v1/admin/walk-in", {
+        token: session.access_token,
+        body: {
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          nationality: nationality.trim(),
+          idType,
+          idNumber: idNumber.trim(),
+          phone: phone.trim(),
+          phoneIsWhatsapp,
+          whatsappNumber: phoneIsWhatsapp ? undefined : whatsappNumber.trim(),
+          email: email.trim() || undefined,
+          dob: effectiveDob || undefined,
+        },
+      });
+      onSuccess(`Added to queue — position #${result.position}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add walk-in.");
+      setLoading(false);
+    }
   }
 
   const canSubmit =

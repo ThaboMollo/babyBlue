@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ClipboardList, Clock } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { callApi } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
 import type {
   AppointmentStatus,
@@ -60,23 +61,20 @@ export default function AppointmentDetailClient({
   }
 
   async function updateStatus(newStatus: AppointmentStatus) {
-    const { error } = await supabase
-      .from("appointments")
-      .update({ status: newStatus })
-      .eq("id", appt.id);
-
-    if (error) { showToast("Error: " + error.message); return; }
-
-    await supabase.from("appointment_events").insert({
-      clinic_id: profile.clinic_id,
-      appointment_id: appt.id,
-      actor_type: "staff",
-      actor_user_id: profile.id,
-      event_type: "status_change",
-      from_status: appt.status,
-      to_status: newStatus,
-    });
-
+    // Single write path: the API validates, audits, and notifies.
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) { showToast("Session expired — please sign in again."); return; }
+    try {
+      await callApi(`/v1/admin/appointments/${appt.id}/transition`, {
+        token: session.access_token,
+        body: { to_status: newStatus },
+      });
+    } catch (err) {
+      showToast("Error: " + (err instanceof Error ? err.message : "could not update status"));
+      return;
+    }
     setAppt((prev) => ({ ...prev, status: newStatus }));
     showToast("Status updated");
   }

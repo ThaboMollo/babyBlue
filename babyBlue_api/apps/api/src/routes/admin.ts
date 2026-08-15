@@ -7,9 +7,21 @@
 //   - HPCSA retention (@babyblue/core) gates hard-delete
 
 import { Hono } from "hono";
-import { computeRetention, isConsentMethod, type Patient } from "@babyblue/core";
+import {
+  computeRetention,
+  isConsentMethod,
+  validatePatientIdentity,
+  appointmentToVisitStatus,
+  notificationForStatus,
+  type Patient,
+  type IdType,
+  type AppointmentStatus,
+  type VisitStatus,
+} from "@babyblue/core";
 import { serviceClient } from "../supabase.js";
 import { requireStaff, requireRole, staff } from "../middleware/auth.js";
+import { resolveOrCreatePerson } from "../lib/people.js";
+import { dispatchNotification } from "../lib/notifications/dispatch.js";
 import { badRequest, forbidden, notFound, serverError } from "../http.js";
 import { logRecordAccess } from "../lib/access-log.js";
 import type { AppEnv } from "../types.js";
@@ -20,6 +32,18 @@ adminRoutes.use("*", requireStaff);
 
 const EXPORT_URL_TTL_SECONDS = 3600; // 1h so the data subject can download
 const SIGNED_URL_TTL_SECONDS = 60;
+
+// Legacy status transitions the staff UI performs — the coarse legacy
+// projection of the Seam 2 Visit machine (the granular arrived/checked_in
+// double-confirm flow lands with the patient surfaces). A move is legal iff
+// the target is in the source's list; empty lists are terminal.
+const LEGACY_TRANSITIONS: Record<AppointmentStatus, AppointmentStatus[]> = {
+  scheduled: ["waiting", "cancelled"],
+  waiting: ["in_consultation", "done", "cancelled"],
+  in_consultation: ["done", "cancelled"],
+  done: [],
+  cancelled: [],
+};
 
 // ── POST /patients/:patientId/consent ────────────────────────
 adminRoutes.post("/patients/:patientId/consent", async (c) => {
@@ -311,4 +335,193 @@ adminRoutes.delete("/patients/:patientId", async (c) => {
   if (paths.length) await service.storage.from("patient-documents").remove(paths);
 
   return c.json({ ok: true });
+});
+
+// ── POST /walk-in ─────────────────────────────────────────────
+// Staff add a walk-in. Resolves the global identity (Seam 1) — `people` is
+// service-role only — then find-or-creates the per-practice patient and
+// today's appointment. Clinic comes from the caller's JWT, not the body.
+adminRoutes.post("/walk-in", async (c) => {
+  const ctx = staff(c);
+  type WalkInBody = {
+    firstName?: string;
+    lastName?: string;
+    nationality?: string;
+    idType?: IdType;
+    idNumber?: string;
+    phone?: string;
+    phoneIsWhatsapp?: boolean;
+    whatsappNumber?: string;
+    email?: string;
+    dob?: string;
+  };
+  const body = await c.req.json<WalkInBody>().catch((): WalkInBody => ({}));
+
+  const firstName = body.firstName?.trim();
+  const lastName = body.lastName?.trim() ?? "";
+  const phone = body.phone?.replace(/[^\d+]/g, "");
+  if (!firstName || !phone) throw badRequest("First name and phone are required.");
+  if (!body.idType || !body.idNumber?.trim()) throw badRequest("ID type and number are required.");
+
+  const identity = validatePatientIdentity({
+    idType: body.idType,
+    idNumber: body.idNumber,
+    nationality: body.nationality ?? "",
+  });
+  if (!identity.valid) throw badRequest(identity.errors[0] ?? "Invalid ID details.");
+  const effectiveDob = body.idType === "rsa_id" ? identity.derivedDob : body.dob?.trim() || null;
+
+  const service = serviceClient();
+
+  const personId = await resolveOrCreatePerson(service, {
+    firstName,
+    lastName,
+    phone,
+    phoneIsWhatsapp: body.phoneIsWhatsapp,
+    whatsappNumber: body.whatsappNumber,
+    idType: body.idType,
+    idNumber: body.idNumber,
+    nationality: body.nationality?.trim() || null,
+    dob: effectiveDob,
+    email: body.email?.trim() || null,
+  });
+
+  const patientFields = {
+    person_id: personId,
+    name: `${firstName} ${lastName}`.trim(),
+    phone,
+    email: body.email?.trim() || null,
+    dob: effectiveDob,
+    nationality: body.nationality?.trim() || null,
+    id_type: body.idType,
+    id_number: body.idNumber.trim(),
+  };
+
+  let patientId: string;
+  const { data: existing } = await service
+    .from("patients")
+    .select("id")
+    .eq("clinic_id", ctx.clinicId)
+    .eq("person_id", personId)
+    .maybeSingle();
+  if (existing) {
+    patientId = existing.id as string;
+    await service.from("patients").update(patientFields).eq("id", patientId);
+  } else {
+    const { data: created, error } = await service
+      .from("patients")
+      .insert({ clinic_id: ctx.clinicId, ...patientFields })
+      .select("id")
+      .single();
+    if (error || !created) throw serverError(error?.message ?? "Failed to create patient.");
+    patientId = created.id as string;
+  }
+
+  const today = new Date().toISOString().split("T")[0];
+  const { data: activeAppt } = await service
+    .from("appointments")
+    .select("id")
+    .eq("clinic_id", ctx.clinicId)
+    .eq("patient_id", patientId)
+    .eq("appointment_date", today)
+    .in("status", ["waiting", "in_consultation"])
+    .maybeSingle();
+  if (activeAppt) throw badRequest("This patient is already active in today's queue.");
+
+  const { data: appt, error: apptError } = await service
+    .from("appointments")
+    .insert({ clinic_id: ctx.clinicId, patient_id: patientId, status: "waiting", appointment_date: today })
+    .select("id, entered_queue_at")
+    .single();
+  if (apptError || !appt) throw serverError(apptError?.message ?? "Failed to create appointment.");
+
+  await service.from("appointment_events").insert({
+    clinic_id: ctx.clinicId,
+    appointment_id: appt.id,
+    actor_type: "staff",
+    actor_user_id: ctx.userId,
+    event_type: "queue_joined",
+    to_status: "waiting",
+  });
+
+  const { count } = await service
+    .from("appointments")
+    .select("*", { count: "exact", head: true })
+    .eq("clinic_id", ctx.clinicId)
+    .eq("appointment_date", today)
+    .eq("status", "waiting")
+    .lt("entered_queue_at", appt.entered_queue_at as string);
+
+  return c.json({ ok: true, position: (count ?? 0) + 1 });
+});
+
+// ── POST /appointments/:appointmentId/transition ──────────────
+// The single write path for a Visit status change: validate against the
+// legacy transition table (Seam 2 projection), update via the RLS-scoped
+// client (the DB trigger sets the timestamps), audit, then dispatch the
+// resulting notification (Seam 3).
+adminRoutes.post("/appointments/:appointmentId/transition", async (c) => {
+  const ctx = staff(c);
+  const appointmentId = c.req.param("appointmentId");
+  const { to_status } = await c.req
+    .json<{ to_status?: AppointmentStatus }>()
+    .catch(() => ({ to_status: undefined }));
+
+  if (!to_status) throw badRequest("A target status is required.");
+
+  const { data: appt } = await ctx.db
+    .from("appointments")
+    .select("id, status, patient_id, clinic_id")
+    .eq("id", appointmentId)
+    .eq("clinic_id", ctx.clinicId)
+    .maybeSingle();
+  if (!appt) throw notFound("Appointment not found.");
+
+  const from = appt.status as AppointmentStatus;
+  if (!LEGACY_TRANSITIONS[from].includes(to_status)) {
+    throw badRequest(`Cannot move a visit from "${from}" to "${to_status}".`);
+  }
+
+  const { error: updateError } = await ctx.db
+    .from("appointments")
+    .update({ status: to_status })
+    .eq("id", appointmentId);
+  if (updateError) throw serverError(updateError.message);
+
+  await ctx.db.from("appointment_events").insert({
+    clinic_id: ctx.clinicId,
+    appointment_id: appointmentId,
+    actor_type: "staff",
+    actor_user_id: ctx.userId,
+    event_type: "status_change",
+    from_status: from,
+    to_status,
+  });
+
+  // Notify (Seam 3), best-effort. "done" maps to the consult-ended feedback
+  // prompt rather than the silent "completed".
+  const notifStatus: VisitStatus =
+    to_status === "done" ? "consult_ended" : appointmentToVisitStatus(to_status);
+  const { data: patient } = await serviceClient()
+    .from("patients")
+    .select("phone, clinics(name)")
+    .eq("id", appt.patient_id)
+    .maybeSingle<{ phone: string | null; clinics: { name: string } | null }>();
+  if (patient?.phone && patient.clinics?.name) {
+    const notification = notificationForStatus(notifStatus, { clinicName: patient.clinics.name });
+    if (notification) {
+      try {
+        await dispatchNotification(serviceClient(), {
+          appointmentId,
+          clinicId: ctx.clinicId,
+          to: patient.phone,
+          notification,
+        });
+      } catch (err) {
+        console.error("[api] transition notification failed:", err);
+      }
+    }
+  }
+
+  return c.json({ ok: true, status: to_status });
 });

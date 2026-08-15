@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { UserPlus, ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { callApi } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
 import AddWalkInModal from "@/components/AddWalkInModal";
 import type { AppointmentWithPatient, AppointmentStatus, Profile } from "@/types";
@@ -69,27 +70,24 @@ export default function QueueClient({ initialAppointments, profile, today }: Pro
   }
 
   async function updateStatus(appt: AppointmentWithPatient, newStatus: AppointmentStatus) {
-    const { error } = await supabase
-      .from("appointments")
-      .update({ status: newStatus })
-      .eq("id", appt.id);
-
-    if (error) {
-      showToast("Error: " + error.message);
+    // Single write path: the API validates the transition, audits it, and
+    // dispatches the notification. Reads/Realtime stay on the RLS client.
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) {
+      showToast("Session expired — please sign in again.");
       return;
     }
-
-    // Audit log
-    await supabase.from("appointment_events").insert({
-      clinic_id: profile.clinic_id,
-      appointment_id: appt.id,
-      actor_type: "staff",
-      actor_user_id: profile.id,
-      event_type: "status_change",
-      from_status: appt.status,
-      to_status: newStatus,
-    });
-
+    try {
+      await callApi(`/v1/admin/appointments/${appt.id}/transition`, {
+        token: session.access_token,
+        body: { to_status: newStatus },
+      });
+    } catch (err) {
+      showToast("Error: " + (err instanceof Error ? err.message : "could not update status"));
+      return;
+    }
     await refetchQueue();
   }
 
