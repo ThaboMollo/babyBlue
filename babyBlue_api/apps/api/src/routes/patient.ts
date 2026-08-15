@@ -10,6 +10,7 @@ import { Hono } from "hono";
 import {
   validatePatientIdentity,
   normaliseIdNumber,
+  notificationForStatus,
   type IdType,
   type AppointmentView,
   type JoinQueueResponse,
@@ -17,6 +18,7 @@ import {
 } from "@babyblue/core";
 import { serviceClient } from "../supabase.js";
 import { resolveOrCreatePerson, splitName } from "../lib/people.js";
+import { dispatchNotification } from "../lib/notifications/dispatch.js";
 import { badRequest, conflict, forbidden, notFound, readJson, serverError, tooMany } from "../http.js";
 import type { AppEnv } from "../types.js";
 
@@ -243,11 +245,35 @@ patientRoutes.post("/join-queue", async (c) => {
     .eq("status", "waiting")
     .lt("entered_queue_at", enteredQueueAt);
 
+  const position = (count ?? 0) + 1;
+
+  // 5. Fire the "joined" notification once, on a fresh join (not a reconnect).
+  //    Idempotency + delivery are the dispatcher's job; a failure here must
+  //    never break the join, so it's best-effort.
+  if (!isReconnect) {
+    const notification = notificationForStatus("queued", {
+      clinicName: clinic.name,
+      position,
+    });
+    if (notification) {
+      try {
+        await dispatchNotification(db, {
+          appointmentId,
+          clinicId: clinic.id,
+          to: phone,
+          notification,
+        });
+      } catch (err) {
+        console.error("[api] notification dispatch failed:", err);
+      }
+    }
+  }
+
   const response: JoinQueueResponse = {
     appointment_id: appointmentId,
     access_token: accessToken,
     clinic_name: clinic.name,
-    position: (count ?? 0) + 1,
+    position,
     is_reconnect: isReconnect,
   };
   return c.json(response);

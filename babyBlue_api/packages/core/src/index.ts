@@ -5,3 +5,4 @@ export * from "./retention.js";
 export * from "./consent.js";
 export * from "./types.js";
 export * from "./visit.js";
+export * from "./notifications.js";
