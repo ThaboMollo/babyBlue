@@ -41,8 +41,11 @@ async function callEdgeFunction<T>(
 
 export async function joinQueue(params: {
   clinic_slug: string;
-  name: string;
+  first_name: string;
+  last_name: string;
   phone: string;
+  phone_is_whatsapp: boolean; // phone is NOT assumed to be the WhatsApp number (Seam 1)
+  whatsapp_number?: string; // captured only when the phone is not WhatsApp
   nationality: string;
   id_type: "rsa_id" | "passport" | "asylum";
   id_number: string;

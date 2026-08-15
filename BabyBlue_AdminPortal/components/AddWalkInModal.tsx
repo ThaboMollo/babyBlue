@@ -2,15 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { X } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import { validatePatientIdentity } from "@/lib/identity";
+import { createWalkIn } from "@/app/(portal)/queue/actions";
 import type { IdType } from "@/types";
 
 interface Props {
-  clinicId: string;
-  userId: string;
-  today: string;
-  waitingCount: number;
   onClose: () => void;
   onSuccess: (message: string) => void;
 }
@@ -21,19 +17,16 @@ const ID_TYPES: { value: IdType; label: string }[] = [
   { value: "asylum", label: "Asylum / permit" },
 ];
 
-export default function AddWalkInModal({
-  clinicId,
-  userId,
-  today,
-  waitingCount,
-  onClose,
-  onSuccess,
-}: Props) {
-  const [name, setName] = useState("");
+export default function AddWalkInModal({ onClose, onSuccess }: Props) {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [nationality, setNationality] = useState("South Africa");
   const [idType, setIdType] = useState<IdType>("rsa_id");
   const [idNumber, setIdNumber] = useState("");
   const [phone, setPhone] = useState("");
+  // Phone is NOT assumed to be WhatsApp — the patient confirms it (Seam 1).
+  const [phoneIsWhatsapp, setPhoneIsWhatsapp] = useState(true);
+  const [whatsappNumber, setWhatsappNumber] = useState("");
   const [email, setEmail] = useState("");
   const [dob, setDob] = useState("");
   const [loading, setLoading] = useState(false);
@@ -58,105 +51,34 @@ export default function AddWalkInModal({
     }
 
     setLoading(true);
-    const supabase = createClient();
-    const trimmedId = idNumber.trim();
-
-    // 1. Find-or-create patient — dedupe on ID number first, then phone.
-    let patientId: string | null = null;
-
-    const { data: byId } = await supabase
-      .from("patients")
-      .select("id")
-      .eq("clinic_id", clinicId)
-      .eq("id_type", idType)
-      .eq("id_number", trimmedId)
-      .maybeSingle();
-
-    if (byId) {
-      patientId = byId.id;
-    } else {
-      const { data: byPhone } = await supabase
-        .from("patients")
-        .select("id")
-        .eq("clinic_id", clinicId)
-        .eq("phone", phone.trim())
-        .maybeSingle();
-      if (byPhone) patientId = byPhone.id;
-    }
-
-    if (!patientId) {
-      const { data: newPatient, error: patientError } = await supabase
-        .from("patients")
-        .insert({
-          clinic_id: clinicId,
-          name: name.trim(),
-          phone: phone.trim(),
-          email: email.trim() || null,
-          dob: effectiveDob || null,
-          nationality: nationality.trim() || null,
-          id_type: idType,
-          id_number: trimmedId,
-        })
-        .select("id")
-        .single();
-
-      if (patientError || !newPatient) {
-        setError(patientError?.message ?? "Failed to create patient.");
-        setLoading(false);
-        return;
-      }
-      patientId = newPatient.id;
-    }
-
-    // 2. Guard against a duplicate active appointment today.
-    const { data: activeAppt } = await supabase
-      .from("appointments")
-      .select("id, status")
-      .eq("clinic_id", clinicId)
-      .eq("patient_id", patientId)
-      .eq("appointment_date", today)
-      .in("status", ["waiting", "in_consultation"])
-      .maybeSingle();
-
-    if (activeAppt) {
-      setError("This patient is already active in today's queue.");
-      setLoading(false);
-      return;
-    }
-
-    // 3. Insert appointment.
-    const { data: appt, error: apptError } = await supabase
-      .from("appointments")
-      .insert({
-        clinic_id: clinicId,
-        patient_id: patientId,
-        status: "waiting",
-        appointment_date: today,
-      })
-      .select("id")
-      .single();
-
-    if (apptError || !appt) {
-      setError(apptError?.message ?? "Failed to create appointment.");
-      setLoading(false);
-      return;
-    }
-
-    // 4. Audit event.
-    await supabase.from("appointment_events").insert({
-      clinic_id: clinicId,
-      appointment_id: appt.id,
-      actor_type: "staff",
-      actor_user_id: userId,
-      event_type: "queue_joined",
-      from_status: null,
-      to_status: "waiting",
+    const result = await createWalkIn({
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      nationality: nationality.trim(),
+      idType,
+      idNumber: idNumber.trim(),
+      phone: phone.trim(),
+      phoneIsWhatsapp,
+      whatsappNumber: phoneIsWhatsapp ? undefined : whatsappNumber.trim(),
+      email: email.trim() || undefined,
+      dob: effectiveDob || undefined,
     });
 
-    onSuccess(`Added to queue — position #${waitingCount + 1}`);
+    if ("error" in result) {
+      setError(result.error);
+      setLoading(false);
+      return;
+    }
+
+    onSuccess(`Added to queue — position #${result.position}`);
   }
 
-  const canSubmit = !loading && name.trim() && phone.trim() && identity.valid;
+  const canSubmit =
+    !loading &&
+    firstName.trim() &&
+    phone.trim() &&
+    identity.valid &&
+    (phoneIsWhatsapp || whatsappNumber.trim());
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40 p-4">
@@ -172,15 +94,26 @@ export default function AddWalkInModal({
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
-          <Field label="Full name" required>
-            <input
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className={inputClass}
-              placeholder="Patient name"
-            />
-          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="First name" required>
+              <input
+                required
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className={inputClass}
+                placeholder="First name"
+              />
+            </Field>
+            <Field label="Last name" required>
+              <input
+                required
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className={inputClass}
+                placeholder="Last name"
+              />
+            </Field>
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Nationality" required>
@@ -237,7 +170,28 @@ export default function AddWalkInModal({
               className={inputClass}
               placeholder="+27 82 000 0000"
             />
+            <label className="flex items-center gap-2 mt-2 text-sm text-[#475569] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={phoneIsWhatsapp}
+                onChange={(e) => setPhoneIsWhatsapp(e.target.checked)}
+                className="rounded border-[#CBD5E1] text-[#0B5AA8] focus:ring-[#0B5AA8]"
+              />
+              This is the patient&apos;s WhatsApp number
+            </label>
           </Field>
+
+          {!phoneIsWhatsapp && (
+            <Field label="WhatsApp number" required>
+              <input
+                required
+                value={whatsappNumber}
+                onChange={(e) => setWhatsappNumber(e.target.value)}
+                className={inputClass}
+                placeholder="+27 82 000 0000"
+              />
+            </Field>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Email" optional>

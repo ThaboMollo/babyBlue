@@ -161,10 +161,143 @@ export function validatePatientIdentity(input: IdentityInput): IdentityResult {
 /**
  * Normalise an ID number for storage and dedupe. RSA IDs strip whitespace;
  * passport/asylum strip whitespace and hyphens and upper-case (so "ab-123"
- * and "AB123" collide on the (clinic_id, id_type, id_number) unique index).
+ * and "AB123" collide on the (id_type, id_number) unique index).
  */
 export function normaliseIdNumber(idType: IdType, raw: string): string {
   const trimmed = (raw ?? "").trim();
   if (idType === "rsa_id") return trimmed.replace(/\s/g, "");
   return trimmed.replace(/[\s-]/g, "").toUpperCase();
+}
+
+// ============================================================
+// Global identity (restructure Seam 1)
+//
+// A person's durable, cross-practice identity is a phone number (ideally the
+// WhatsApp number) plus, secondarily, their national ID. These helpers are
+// the single home for two rules:
+//   1. the entered phone is NOT assumed to be the WhatsApp number
+//      (resolvePersonNumbers), and
+//   2. the resolve-or-create dedupe precedence (personMatchKeys).
+// ============================================================
+
+/**
+ * Normalise a phone / WhatsApp number to E.164 (best-effort, South-Africa
+ * default — the target market). Returns null when it can't be made into a
+ * plausible E.164 string. This is deliberately not a full libphonenumber; it
+ * handles the shapes the join / booking forms actually produce:
+ *   "082 123 4567" / "0821234567"     → "+27821234567"
+ *   "27821234567"  / "+27 82 123 4567"→ "+27821234567"
+ *   "+2547…" (other country code)      → kept, digits-only after the +
+ */
+export function normalisePhone(
+  raw: string | null | undefined,
+  defaultCc = "27"
+): string | null {
+  if (raw === null || raw === undefined) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+
+  const hasPlus = trimmed.startsWith("+");
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits) return null;
+
+  if (hasPlus) {
+    return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
+  }
+  // Local SA form: leading 0 + 9 national digits (10 total).
+  if (digits.startsWith("0") && digits.length === 10) {
+    return `+${defaultCc}${digits.slice(1)}`;
+  }
+  // Country code without the + (e.g. 27XXXXXXXXX).
+  if (digits.startsWith(defaultCc) && digits.length === defaultCc.length + 9) {
+    return `+${digits}`;
+  }
+  // Bare 9-digit national number (no leading 0).
+  if (digits.length === 9) {
+    return `+${defaultCc}${digits}`;
+  }
+  // Otherwise keep it if it's a plausible international length.
+  if (digits.length >= 10 && digits.length <= 15) {
+    return `+${digits}`;
+  }
+  return null;
+}
+
+/** What a front door captured about a person's contact + identity. */
+export interface PersonIdentityInput {
+  /** The contact number the patient typed. NOT assumed to be WhatsApp. */
+  phone?: string | null;
+  /** True when the patient confirmed the phone IS their WhatsApp number. */
+  phoneIsWhatsapp?: boolean;
+  /** A distinct WhatsApp number, when they said the phone is not it. */
+  whatsappNumber?: string | null;
+  idType?: IdType | null;
+  idNumber?: string | null;
+}
+
+/** The three `people` number columns, reconciled. */
+export interface PersonNumbers {
+  phone: string | null;
+  whatsapp_number: string | null;
+  whatsapp_confirmed: boolean;
+}
+
+/**
+ * Reconcile a front door's phone/WhatsApp inputs into the `people` number
+ * columns — the one place the "phone ≠ WhatsApp" rule lives.
+ *   - phoneIsWhatsapp    → whatsapp_number = phone, confirmed
+ *   - explicit whatsappNumber → stored + confirmed
+ *   - neither            → whatsapp_number null, unconfirmed (reconciled later)
+ */
+export function resolvePersonNumbers(input: PersonIdentityInput): PersonNumbers {
+  const phone = normalisePhone(input.phone ?? null);
+  const explicitWa = normalisePhone(input.whatsappNumber ?? null);
+
+  if (input.phoneIsWhatsapp && phone) {
+    return { phone, whatsapp_number: phone, whatsapp_confirmed: true };
+  }
+  if (explicitWa) {
+    return { phone, whatsapp_number: explicitWa, whatsapp_confirmed: true };
+  }
+  return { phone, whatsapp_number: null, whatsapp_confirmed: false };
+}
+
+/**
+ * A dedupe key for resolve-or-create against `people`, in precedence order.
+ * A `number` key must be matched against EITHER the phone OR the
+ * whatsapp_number column (a person may have booked with a WhatsApp number and
+ * later walked in giving the same number as a plain phone, or vice-versa).
+ */
+export type PersonMatchKey =
+  | { by: "number"; value: string }
+  | { by: "id"; idType: IdType; idNumber: string };
+
+/**
+ * Ordered dedupe keys: confirmed WhatsApp number → phone → national ID.
+ * De-duplicates identical normalised numbers so we don't query twice.
+ */
+export function personMatchKeys(input: PersonIdentityInput): PersonMatchKey[] {
+  const keys: PersonMatchKey[] = [];
+  const seen = new Set<string>();
+
+  const pushNumber = (raw: string | null | undefined) => {
+    const n = normalisePhone(raw);
+    if (n && !seen.has(n)) {
+      seen.add(n);
+      keys.push({ by: "number", value: n });
+    }
+  };
+
+  // 1. A confirmed WhatsApp number is the strongest key.
+  if (input.phoneIsWhatsapp) pushNumber(input.phone);
+  pushNumber(input.whatsappNumber);
+  // 2. The plain phone.
+  pushNumber(input.phone);
+  // 3. National ID.
+  if (input.idType && input.idNumber) {
+    const idNumber = normaliseIdNumber(input.idType, input.idNumber);
+    if (idNumber) keys.push({ by: "id", idType: input.idType, idNumber });
+  }
+
+  return keys;
 }

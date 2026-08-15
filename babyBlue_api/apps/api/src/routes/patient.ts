@@ -16,6 +16,7 @@ import {
   type ResolvedQuestion,
 } from "@babyblue/core";
 import { serviceClient } from "../supabase.js";
+import { resolveOrCreatePerson, splitName } from "../lib/people.js";
 import { badRequest, conflict, forbidden, notFound, readJson, serverError, tooMany } from "../http.js";
 import type { AppEnv } from "../types.js";
 
@@ -47,7 +48,11 @@ patientRoutes.post("/join-queue", async (c) => {
   const body = await readJson<{
     clinic_slug?: string;
     name?: string;
+    first_name?: string;
+    last_name?: string;
     phone?: string;
+    phone_is_whatsapp?: boolean;
+    whatsapp_number?: string;
     nationality?: string;
     id_type?: string;
     id_number?: string;
@@ -55,14 +60,20 @@ patientRoutes.post("/join-queue", async (c) => {
   }>(c);
 
   const clinicSlug = body.clinic_slug;
-  const name = body.name;
+  // Prefer explicit first/last name; fall back to splitting a single `name`.
+  const firstName = (body.first_name ?? "").trim();
+  const lastName = (body.last_name ?? "").trim();
+  const split = splitName(body.name ?? "");
+  const resolvedFirst = firstName || split.firstName;
+  const resolvedLast = lastName || split.lastName;
+  const name = `${resolvedFirst} ${resolvedLast}`.trim();
   // Normalize so "082 123 4567" and "0821234567" match the same patient.
   const phone = body.phone?.replace(/[^\d+]/g, "");
   const nationality = (body.nationality ?? "").trim();
   const idType = body.id_type as IdType | undefined;
   const rawIdNumber = (body.id_number ?? "").trim();
 
-  if (!clinicSlug || !name?.trim() || !phone) {
+  if (!clinicSlug || !resolvedFirst || !phone) {
     throw badRequest("clinic_slug, name, and phone are required");
   }
   if (!idType || !["rsa_id", "passport", "asylum"].includes(idType) || !rawIdNumber) {
@@ -94,9 +105,23 @@ patientRoutes.post("/join-queue", async (c) => {
     .gt("created_at", oneHourAgo);
   if ((ipJoins ?? 0) >= 20) throw tooMany();
 
-  // 2. Find-or-create patient — dedupe on ID number first, then phone.
+  // 2. Resolve the GLOBAL identity first (Seam 1), then find-or-create the
+  //    per-practice patient record for (this clinic, this person).
+  const personId = await resolveOrCreatePerson(db, {
+    firstName: resolvedFirst,
+    lastName: resolvedLast,
+    phone,
+    phoneIsWhatsapp: body.phone_is_whatsapp,
+    whatsappNumber: body.whatsapp_number,
+    idType,
+    idNumber,
+    nationality,
+    dob: derivedDob,
+  });
+
   const identityFields: Record<string, string> = {
-    name: name.trim(),
+    person_id: personId,
+    name,
     phone,
     nationality,
     id_type: idType,
@@ -105,24 +130,12 @@ patientRoutes.post("/join-queue", async (c) => {
   if (derivedDob) identityFields.dob = derivedDob; // don't wipe an existing dob with null
 
   let patientId: string;
-  const { data: byId } = await db
+  const { data: existing } = await db
     .from("patients")
     .select("id")
     .eq("clinic_id", clinic.id)
-    .eq("id_type", idType)
-    .eq("id_number", idNumber)
+    .eq("person_id", personId)
     .maybeSingle();
-
-  let existing = byId;
-  if (!existing) {
-    const { data: byPhone } = await db
-      .from("patients")
-      .select("id")
-      .eq("clinic_id", clinic.id)
-      .eq("phone", phone)
-      .maybeSingle();
-    existing = byPhone;
-  }
 
   if (existing) {
     patientId = existing.id as string;

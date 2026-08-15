@@ -23,6 +23,7 @@ interface JoinQueueFormProps {
 interface FormErrors {
   name?: string;
   phone?: string;
+  whatsapp?: string;
   idNumber?: string;
   general?: string;
 }
@@ -48,11 +49,15 @@ function validatePhone(phone: string): boolean {
 export default function JoinQueueForm({ clinicSlug, clinicName }: JoinQueueFormProps) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [nationality, setNationality] = useState("South Africa");
   const [idType, setIdType] = useState<IdType>("rsa_id");
   const [idNumber, setIdNumber] = useState("");
   const [phone, setPhone] = useState("");
+  // Phone is NOT assumed to be WhatsApp — patient confirms it (Seam 1).
+  const [phoneIsWhatsapp, setPhoneIsWhatsapp] = useState(true);
+  const [whatsappNumber, setWhatsappNumber] = useState("");
   const [consent, setConsent] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [loading, setLoading] = useState(false);
@@ -63,8 +68,10 @@ export default function JoinQueueForm({ clinicSlug, clinicName }: JoinQueueFormP
   useEffect(() => {
     const saved = loadPatientInfo();
     if (saved) {
+      const parts = saved.name.trim().split(/\s+/);
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setName(saved.name);
+      setFirstName(parts.shift() ?? "");
+      setLastName(parts.join(" "));
       setPhone(saved.phone);
       if (saved.nationality) setNationality(saved.nationality);
       if (saved.id_type) setIdType(saved.id_type);
@@ -82,8 +89,11 @@ export default function JoinQueueForm({ clinicSlug, clinicName }: JoinQueueFormP
 
   function handleClearSaved() {
     clearPatientInfo();
-    setName("");
+    setFirstName("");
+    setLastName("");
     setPhone("");
+    setPhoneIsWhatsapp(true);
+    setWhatsappNumber("");
     setNationality("South Africa");
     setIdType("rsa_id");
     setIdNumber("");
@@ -92,11 +102,14 @@ export default function JoinQueueForm({ clinicSlug, clinicName }: JoinQueueFormP
 
   function validate(): boolean {
     const errs: FormErrors = {};
-    if (!name.trim()) errs.name = "Please enter your name.";
+    if (!firstName.trim()) errs.name = "Please enter your first name.";
     if (!phone.trim()) {
       errs.phone = "Please enter your phone number.";
     } else if (!validatePhone(phone)) {
       errs.phone = "Please enter a valid phone number.";
+    }
+    if (!phoneIsWhatsapp && !validatePhone(whatsappNumber)) {
+      errs.whatsapp = "Please enter a valid WhatsApp number.";
     }
     if (!identity.valid) {
       errs.idNumber = identity.errors[0] ?? "Please check your ID details.";
@@ -115,8 +128,11 @@ export default function JoinQueueForm({ clinicSlug, clinicName }: JoinQueueFormP
     try {
       const result = await joinQueue({
         clinic_slug: clinicSlug,
-        name: name.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
         phone: phone.trim(),
+        phone_is_whatsapp: phoneIsWhatsapp,
+        whatsapp_number: phoneIsWhatsapp ? undefined : whatsappNumber.trim(),
         nationality: nationality.trim(),
         id_type: idType,
         id_number: idNumber.trim(),
@@ -130,7 +146,7 @@ export default function JoinQueueForm({ clinicSlug, clinicName }: JoinQueueFormP
         clinicSlug,
       });
       savePatientInfo({
-        name: name.trim(),
+        name: `${firstName.trim()} ${lastName.trim()}`.trim(),
         phone: phone.trim(),
         nationality: nationality.trim(),
         id_type: idType,
@@ -176,15 +192,24 @@ export default function JoinQueueForm({ clinicSlug, clinicName }: JoinQueueFormP
           )}
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-md" noValidate>
-            <Input
-              label="Your name"
-              placeholder="e.g. Thabo Dlamini"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              error={errors.name}
-              autoComplete="name"
-              autoFocus
-            />
+            <div className="grid grid-cols-2 gap-sm">
+              <Input
+                label="First name"
+                placeholder="e.g. Thabo"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                error={errors.name}
+                autoComplete="given-name"
+                autoFocus
+              />
+              <Input
+                label="Last name"
+                placeholder="e.g. Dlamini"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                autoComplete="family-name"
+              />
+            </div>
 
             <div className="grid grid-cols-2 gap-sm">
               <Input
@@ -242,6 +267,30 @@ export default function JoinQueueForm({ clinicSlug, clinicName }: JoinQueueFormP
               error={errors.phone}
               autoComplete="tel"
             />
+
+            <label className="flex items-center gap-2 -mt-1 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={phoneIsWhatsapp}
+                onChange={(e) => setPhoneIsWhatsapp(e.target.checked)}
+                className="h-4 w-4 rounded border-border text-primary focus:ring-primary/20"
+              />
+              <span className="text-sm text-text-secondary">
+                This is my WhatsApp number
+              </span>
+            </label>
+
+            {!phoneIsWhatsapp && (
+              <Input
+                label="WhatsApp number"
+                type="tel"
+                placeholder="e.g. 082 123 4567"
+                value={whatsappNumber}
+                onChange={(e) => setWhatsappNumber(e.target.value)}
+                error={errors.whatsapp}
+                autoComplete="tel"
+              />
+            )}
 
             <p className="text-xs text-text-secondary -mt-1">
               We use your ID number only to link you to your medical records at this

@@ -71,6 +71,137 @@ function validateIdentity(
   return { ok: true, dob: null };
 }
 
+function normaliseIdNumber(idType: IdType, raw: string): string {
+  const trimmed = (raw ?? "").trim();
+  if (idType === "rsa_id") return trimmed.replace(/\s/g, "");
+  return trimmed.replace(/[\s-]/g, "").toUpperCase();
+}
+
+// ── Global identity (restructure Seam 1). Mirrors @babyblue/core; inline
+//    for Deno. Phone is NOT assumed to be the WhatsApp number; dedupe
+//    precedence is confirmed WhatsApp → phone → national ID, and a number is
+//    matched against either the phone or whatsapp_number column. ────────────
+function normalisePhone(raw: string | null | undefined, defaultCc = "27"): string | null {
+  if (raw === null || raw === undefined) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  const hasPlus = trimmed.startsWith("+");
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits) return null;
+  if (hasPlus) return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
+  if (digits.startsWith("0") && digits.length === 10) return `+${defaultCc}${digits.slice(1)}`;
+  if (digits.startsWith(defaultCc) && digits.length === defaultCc.length + 9) return `+${digits}`;
+  if (digits.length === 9) return `+${defaultCc}${digits}`;
+  if (digits.length >= 10 && digits.length <= 15) return `+${digits}`;
+  return null;
+}
+
+interface PersonInput {
+  firstName: string;
+  lastName: string;
+  phone?: string | null;
+  phoneIsWhatsapp?: boolean;
+  whatsappNumber?: string | null;
+  idType?: IdType | null;
+  idNumber?: string | null;
+  nationality?: string | null;
+  dob?: string | null;
+}
+
+function resolvePersonNumbers(input: PersonInput) {
+  const phone = normalisePhone(input.phone ?? null);
+  const explicitWa = normalisePhone(input.whatsappNumber ?? null);
+  if (input.phoneIsWhatsapp && phone) {
+    return { phone, whatsapp_number: phone, whatsapp_confirmed: true };
+  }
+  if (explicitWa) return { phone, whatsapp_number: explicitWa, whatsapp_confirmed: true };
+  return { phone, whatsapp_number: null, whatsapp_confirmed: false };
+}
+
+type MatchKey =
+  | { by: "number"; value: string }
+  | { by: "id"; idType: IdType; idNumber: string };
+
+function personMatchKeys(input: PersonInput): MatchKey[] {
+  const keys: MatchKey[] = [];
+  const seen = new Set<string>();
+  const pushNumber = (raw?: string | null) => {
+    const n = normalisePhone(raw);
+    if (n && !seen.has(n)) {
+      seen.add(n);
+      keys.push({ by: "number", value: n });
+    }
+  };
+  if (input.phoneIsWhatsapp) pushNumber(input.phone);
+  pushNumber(input.whatsappNumber);
+  pushNumber(input.phone);
+  if (input.idType && input.idNumber) {
+    keys.push({ by: "id", idType: input.idType, idNumber: input.idNumber });
+  }
+  return keys;
+}
+
+// deno-lint-ignore no-explicit-any
+async function resolveOrCreatePerson(supabase: any, input: PersonInput): Promise<string> {
+  const keys = personMatchKeys(input);
+  const numbers = resolvePersonNumbers(input);
+
+  // deno-lint-ignore no-explicit-any
+  let found: any = null;
+  for (const key of keys) {
+    let q = supabase
+      .from("people")
+      .select("id, whatsapp_number, whatsapp_confirmed, dob");
+    if (key.by === "number") {
+      q = q.or(`phone.eq.${key.value},whatsapp_number.eq.${key.value}`);
+    } else {
+      q = q.eq("id_type", key.idType).eq("id_number", key.idNumber);
+    }
+    const { data } = await q.limit(1).maybeSingle();
+    if (data) {
+      found = data;
+      break;
+    }
+  }
+
+  if (found) {
+    const patch: Record<string, unknown> = {};
+    if (numbers.whatsapp_confirmed && !found.whatsapp_confirmed && numbers.whatsapp_number) {
+      patch.whatsapp_number = numbers.whatsapp_number;
+      patch.whatsapp_confirmed = true;
+    }
+    if (input.dob && !found.dob) patch.dob = input.dob;
+    if (Object.keys(patch).length) {
+      await supabase.from("people").update(patch).eq("id", found.id);
+    }
+    return found.id;
+  }
+
+  const { data: created, error } = await supabase
+    .from("people")
+    .insert({
+      first_name: input.firstName,
+      last_name: input.lastName,
+      phone: numbers.phone,
+      whatsapp_number: numbers.whatsapp_number,
+      whatsapp_confirmed: numbers.whatsapp_confirmed,
+      id_type: input.idType ?? null,
+      id_number: input.idNumber ?? null,
+      dob: input.dob ?? null,
+      nationality: input.nationality ?? null,
+    })
+    .select("id")
+    .single();
+  if (error || !created) throw new Error("Failed to create person");
+  return created.id;
+}
+
+function splitName(name: string): { firstName: string; lastName: string } {
+  const parts = name.trim().split(/\s+/);
+  const firstName = parts.shift() ?? "";
+  return { firstName, lastName: parts.join(" ") };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -91,7 +222,11 @@ Deno.serve(async (req) => {
   let body: {
     clinic_slug?: string;
     name?: string;
+    first_name?: string;
+    last_name?: string;
     phone?: string;
+    phone_is_whatsapp?: boolean;
+    whatsapp_number?: string;
     nationality?: string;
     id_type?: string;
     id_number?: string;
@@ -106,28 +241,33 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { clinic_slug, name } = body;
+  const { clinic_slug } = body;
+  // Prefer explicit first/last name; fall back to splitting a single `name`.
+  const split = splitName(body.name ?? "");
+  const firstName = (body.first_name ?? "").trim() || split.firstName;
+  const lastName = (body.last_name ?? "").trim() || split.lastName;
+  const name = `${firstName} ${lastName}`.trim();
   // Normalize so "082 123 4567" and "0821234567" match the same patient
   const phone = body.phone?.replace(/[^\d+]/g, "");
   const nationality = (body.nationality ?? "").trim();
   const idType = body.id_type as IdType | undefined;
-  const idNumber = (body.id_number ?? "").trim();
+  const rawIdNumber = (body.id_number ?? "").trim();
 
-  if (!clinic_slug || !name?.trim() || !phone) {
+  if (!clinic_slug || !firstName || !phone) {
     return new Response(
       JSON.stringify({ error: "clinic_slug, name, and phone are required" }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 
-  if (!idType || !["rsa_id", "passport", "asylum"].includes(idType) || !idNumber) {
+  if (!idType || !["rsa_id", "passport", "asylum"].includes(idType) || !rawIdNumber) {
     return new Response(
       JSON.stringify({ error: "A valid ID type and number are required" }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 
-  const identity = validateIdentity(idType, idNumber, nationality);
+  const identity = validateIdentity(idType, rawIdNumber, nationality);
   if (!identity.ok) {
     return new Response(JSON.stringify({ error: identity.error }), {
       status: 400,
@@ -135,6 +275,7 @@ Deno.serve(async (req) => {
     });
   }
   const derivedDob = identity.dob;
+  const idNumber = normaliseIdNumber(idType, rawIdNumber);
 
   // 1. Look up clinic by slug
   const { data: clinic, error: clinicError } = await supabase
@@ -169,10 +310,31 @@ Deno.serve(async (req) => {
     );
   }
 
-  // 2. Find-or-create patient — dedupe on ID number first, then phone.
-  //    Identity fields are (re)persisted from the authoritative server values.
+  // 2. Resolve the GLOBAL identity first (Seam 1), then find-or-create the
+  //    per-practice patient record for (this clinic, this person).
+  let personId: string;
+  try {
+    personId = await resolveOrCreatePerson(supabase, {
+      firstName,
+      lastName,
+      phone,
+      phoneIsWhatsapp: body.phone_is_whatsapp,
+      whatsappNumber: body.whatsapp_number,
+      idType,
+      idNumber,
+      nationality,
+      dob: derivedDob,
+    });
+  } catch {
+    return new Response(JSON.stringify({ error: "Failed to resolve identity" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   const identityFields: Record<string, string> = {
-    name: name.trim(),
+    person_id: personId,
+    name,
     phone,
     nationality,
     id_type: idType,
@@ -181,24 +343,12 @@ Deno.serve(async (req) => {
   if (derivedDob) identityFields.dob = derivedDob; // don't wipe an existing dob with null
 
   let patientId: string;
-  const { data: byId } = await supabase
+  const { data: existing } = await supabase
     .from("patients")
     .select("id")
     .eq("clinic_id", clinic.id)
-    .eq("id_type", idType)
-    .eq("id_number", idNumber)
+    .eq("person_id", personId)
     .maybeSingle();
-
-  let existing = byId;
-  if (!existing) {
-    const { data: byPhone } = await supabase
-      .from("patients")
-      .select("id")
-      .eq("clinic_id", clinic.id)
-      .eq("phone", phone)
-      .maybeSingle();
-    existing = byPhone;
-  }
 
   if (existing) {
     patientId = existing.id;

@@ -44,9 +44,32 @@ export interface Profile {
   created_at: string;
 }
 
+/**
+ * Global patient identity — one row per human across all practices
+ * (restructure Seam 1). Lives in the `people` table; service-role access
+ * only. The durable cross-practice key is the (confirmed) WhatsApp number,
+ * with the national ID as a secondary key. Never assume `phone` is WhatsApp.
+ */
+export interface Person {
+  id: string;
+  first_name: string;
+  last_name: string;
+  phone: string | null;
+  whatsapp_number: string | null;
+  whatsapp_confirmed: boolean;
+  id_type: IdType | null;
+  id_number: string | null;
+  dob: string | null;
+  nationality: string | null;
+  email: string | null;
+  created_at: string;
+}
+
 export interface Patient {
   id: string;
   clinic_id: string;
+  /** Link to the global {@link Person} identity (Seam 1). */
+  person_id: string | null;
   name: string;
   phone: string;
   email: string | null;
@@ -64,6 +87,13 @@ export interface Patient {
   clinical_notes: string | null;
   record_updated_at: string | null;
 }
+
+/**
+ * Vocabulary alias: `Patient` IS the per-practice record (clinic-scoped
+ * clinical file) in the Seam 1 model. Prefer `PracticePatient` in new code
+ * that also deals with the global {@link Person}.
+ */
+export type PracticePatient = Patient;
 
 export interface Appointment {
   id: string;

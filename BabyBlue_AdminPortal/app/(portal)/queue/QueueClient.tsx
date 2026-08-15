@@ -279,10 +279,6 @@ export default function QueueClient({ initialAppointments, profile, today }: Pro
       {/* Add Walk-In Modal */}
       {showWalkIn && (
         <AddWalkInModal
-          clinicId={profile.clinic_id}
-          userId={profile.id}
-          today={today}
-          waitingCount={waitingAppointments.length}
           onClose={() => setShowWalkIn(false)}
           onSuccess={(msg) => {
             setShowWalkIn(false);
