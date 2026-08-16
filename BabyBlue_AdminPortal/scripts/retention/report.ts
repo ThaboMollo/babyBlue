@@ -11,7 +11,7 @@
  */
 import { writeFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
-import { computeRetention } from "../../lib/retention";
+import { computeRetention } from "@babyblue/core";
 import { loadDotEnv } from "../_env";
 
 function arg(name: string): string | undefined {

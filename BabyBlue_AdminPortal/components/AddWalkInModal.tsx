@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { callApi } from "@/lib/api";
-import { validatePatientIdentity } from "@/lib/identity";
+import { validatePatientIdentity } from "@babyblue/core";
 import type { IdType } from "@/types";
 
 interface Props {

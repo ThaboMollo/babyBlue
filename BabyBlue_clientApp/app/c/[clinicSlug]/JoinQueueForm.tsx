@@ -6,7 +6,7 @@ import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Card from "@/components/ui/Card";
 import { joinQueue } from "@/lib/api";
-import { validatePatientIdentity, type IdType } from "@/lib/identity";
+import { validatePatientIdentity, type IdType } from "@babyblue/core";
 import {
   saveSession,
   savePatientInfo,

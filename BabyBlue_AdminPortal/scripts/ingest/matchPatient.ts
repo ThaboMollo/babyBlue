@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { validateSAIdNumber, type IdType } from "../../lib/identity";
+import { validateSAIdNumber, type IdType } from "@babyblue/core";
 
 /** Identity fields the scan/OCR step extracted for one document. */
 export interface IngestIdentity {
