@@ -10,7 +10,7 @@
 import type { Context, MiddlewareHandler } from "hono";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { UserRole } from "@babyblue/core";
-import { userClient } from "../supabase.js";
+import { userClient, serviceClient } from "../supabase.js";
 import { ApiError, forbidden } from "../http.js";
 
 export interface StaffContext {
@@ -66,4 +66,44 @@ export function requireRole(c: Context, ...roles: UserRole[]): StaffContext {
     throw forbidden(`This action requires role: ${roles.join(" or ")}.`);
   }
   return s;
+}
+
+export interface PlatformContext {
+  userId: string;
+}
+
+const PLATFORM_KEY = "platform";
+
+/**
+ * Platform-admin (Super Admin) guard. Verifies the JWT, then confirms the user
+ * is in `platform_admins` (checked with the service role — a platform admin has
+ * no clinic-scoped profile, so the RLS-scoped client can't self-serve this).
+ */
+export const requirePlatformAdmin: MiddlewareHandler = async (c, next) => {
+  const header = c.req.header("Authorization") ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!token) throw new ApiError(401, "Not authenticated.");
+
+  const {
+    data: { user },
+    error,
+  } = await userClient(token).auth.getUser();
+  if (error || !user) throw new ApiError(401, "Not authenticated.");
+
+  const { data: row } = await serviceClient()
+    .from("platform_admins")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!row) throw forbidden("Platform administrator access required.");
+
+  c.set(PLATFORM_KEY, { userId: user.id } satisfies PlatformContext);
+  await next();
+};
+
+/** Read the platform context set by `requirePlatformAdmin`. */
+export function platform(c: Context): PlatformContext {
+  const p = c.get(PLATFORM_KEY) as PlatformContext | undefined;
+  if (!p) throw new ApiError(401, "Not authenticated.");
+  return p;
 }

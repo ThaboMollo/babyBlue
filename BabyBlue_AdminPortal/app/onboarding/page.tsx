@@ -36,6 +36,19 @@ export default function OnboardingPage() {
 
     const supabase = createClient();
 
+    // Require an authenticated session before any privileged insert. Without
+    // this, an unconfirmed/expired session would attempt the insert as `anon`
+    // and hit a cryptic row-level-security error instead of a clear prompt.
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setError("Please confirm your email and sign in before setting up your clinic.");
+      setLoading(false);
+      router.push("/login");
+      return;
+    }
+
     // Check slug uniqueness
     const { data: existing } = await supabase
       .from("clinics")

@@ -9,6 +9,7 @@ import { patientRoutes } from "./routes/patient.js";
 import { adminRoutes } from "./routes/admin.js";
 import { peopleRoutes } from "./routes/people.js";
 import { bookingRoutes } from "./routes/booking.js";
+import { platformRoutes } from "./routes/platform.js";
 import type { AppEnv } from "./types.js";
 
 export function createApp() {

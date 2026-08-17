@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { callApi } from "@/lib/api";
 import { validatePatientIdentity } from "@babyblue/core";
+import CountrySelect from "@/components/CountrySelect";
 import type { IdType } from "@/types";
 
 interface Props {
@@ -129,13 +130,7 @@ export default function AddWalkInModal({ onClose, onSuccess }: Props) {
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Nationality" required>
-              <input
-                required
-                value={nationality}
-                onChange={(e) => setNationality(e.target.value)}
-                className={inputClass}
-                placeholder="South Africa"
-              />
+              <CountrySelect value={nationality} onChange={setNationality} />
             </Field>
             <Field label="ID type" required>
               <select

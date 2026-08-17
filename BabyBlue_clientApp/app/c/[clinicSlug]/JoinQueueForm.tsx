@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Card from "@/components/ui/Card";
+import CountrySelect from "@/components/ui/CountrySelect";
 import { joinQueue } from "@/lib/api";
 import { validatePatientIdentity, type IdType } from "@babyblue/core";
 import {
@@ -212,13 +213,12 @@ export default function JoinQueueForm({ clinicSlug, clinicName }: JoinQueueFormP
             </div>
 
             <div className="grid grid-cols-2 gap-sm">
-              <Input
-                label="Nationality"
-                placeholder="South Africa"
-                value={nationality}
-                onChange={(e) => setNationality(e.target.value)}
-                autoComplete="country-name"
-              />
+              <div className="flex flex-col gap-1">
+                <label htmlFor="nationality" className="text-sm font-medium text-text-primary">
+                  Nationality
+                </label>
+                <CountrySelect id="nationality" value={nationality} onChange={setNationality} />
+              </div>
               <div className="flex flex-col gap-1">
                 <label htmlFor="id-type" className="text-sm font-medium text-text-primary">
                   ID type

@@ -12,6 +12,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [checkEmail, setCheckEmail] = useState(false);
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
@@ -19,10 +20,10 @@ export default function SignupPage() {
     setError(null);
 
     const supabase = createClient();
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=/onboarding` },
     });
 
     if (error) {
@@ -31,8 +32,17 @@ export default function SignupPage() {
       return;
     }
 
-    router.push("/onboarding");
-    router.refresh();
+    // With email confirmation enabled, signUp returns no session — the user
+    // must confirm before they have one. Only proceed to onboarding (which does
+    // authenticated inserts) when a session actually exists; otherwise prompt
+    // them to confirm their email first.
+    if (data.session) {
+      router.push("/onboarding");
+      router.refresh();
+    } else {
+      setCheckEmail(true);
+      setLoading(false);
+    }
   }
 
   return (
@@ -51,6 +61,18 @@ export default function SignupPage() {
           </p>
         </div>
 
+        {checkEmail ? (
+          <div className="text-center space-y-3">
+            <p className="text-[#0F172A] font-semibold">Check your email</p>
+            <p className="text-sm text-[#475569]">
+              We&apos;ve sent a confirmation link to <span className="font-medium">{email}</span>.
+              Confirm your account, then you&apos;ll be taken to set up your clinic.
+            </p>
+            <Link href="/login" className="inline-block text-[#0B5AA8] font-medium hover:underline text-sm">
+              Back to sign in
+            </Link>
+          </div>
+        ) : (
         <form onSubmit={handleSignup} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-[#0F172A] mb-1">
@@ -95,13 +117,16 @@ export default function SignupPage() {
             {loading ? "Creating account…" : "Create account"}
           </button>
         </form>
+        )}
 
+        {!checkEmail && (
         <p className="mt-6 text-center text-sm text-[#475569]">
           Already have an account?{" "}
           <Link href="/login" className="text-[#0B5AA8] font-medium hover:underline">
             Sign in
           </Link>
         </p>
+        )}
       </div>
     </div>
   );
