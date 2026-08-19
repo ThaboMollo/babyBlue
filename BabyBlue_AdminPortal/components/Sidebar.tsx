@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutList, Settings, LogOut, Users } from "lucide-react";
+import { LayoutList, Settings, LogOut, Users, UserCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile, Clinic } from "@/types";
 
@@ -15,6 +15,7 @@ interface Props {
 const navItems = [
   { href: "/queue", label: "Queue", icon: LayoutList },
   { href: "/patients", label: "Patients", icon: Users },
+  { href: "/profile", label: "My Profile", icon: UserCircle },
 ];
 
 const adminNavItems = [
@@ -100,7 +101,9 @@ export default function Sidebar({ profile, clinic }: Props) {
       <div className="px-3 py-4 border-t border-[#E2E8F0]">
         <div className="px-3 py-2 mb-1">
           <p className="text-sm font-medium text-[#0F172A] truncate">
-            {profile.full_name ?? "Staff"}
+            {[profile.first_name, profile.last_name].filter(Boolean).join(" ") ||
+              profile.full_name ||
+              "Staff"}
           </p>
           <p className="text-xs text-[#475569] capitalize">{profile.role}</p>
         </div>

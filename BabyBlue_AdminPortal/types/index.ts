@@ -9,6 +9,8 @@ export type UserRole = "admin" | "reception" | "doctor";
 export type QuestionType = "text" | "dropdown" | "scale" | "boolean";
 export type ActorType = "patient" | "staff";
 
+export type ClinicStatus = "pending" | "active" | "suspended";
+
 export interface Clinic {
   id: string;
   name: string;
@@ -16,6 +18,7 @@ export interface Clinic {
   address: string | null;
   phone: string | null;
   avg_consultation_minutes: number;
+  status: ClinicStatus;
   created_at: string;
 }
 
@@ -23,6 +26,8 @@ export interface Profile {
   id: string;
   clinic_id: string;
   role: UserRole;
+  first_name: string | null;
+  last_name: string | null;
   full_name: string | null;
   created_at: string;
 }

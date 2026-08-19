@@ -8,6 +8,8 @@ import { createClient } from "@/lib/supabase/client";
 
 export default function SignupPage() {
   const router = useRouter();
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +25,10 @@ export default function SignupPage() {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=/onboarding` },
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=/onboarding`,
+        data: { first_name: firstName.trim(), last_name: lastName.trim() },
+      },
     });
 
     if (error) {
@@ -74,6 +79,33 @@ export default function SignupPage() {
           </div>
         ) : (
         <form onSubmit={handleSignup} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-[#0F172A] mb-1">
+                First name
+              </label>
+              <input
+                required
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-lg border border-[#E2E8F0] text-[#0F172A] text-sm focus:outline-none focus:ring-2 focus:ring-[#0B5AA8] focus:border-transparent"
+                placeholder="First name"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-[#0F172A] mb-1">
+                Last name
+              </label>
+              <input
+                required
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-lg border border-[#E2E8F0] text-[#0F172A] text-sm focus:outline-none focus:ring-2 focus:ring-[#0B5AA8] focus:border-transparent"
+                placeholder="Last name"
+              />
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-[#0F172A] mb-1">
               Email

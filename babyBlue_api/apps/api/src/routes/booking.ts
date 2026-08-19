@@ -55,10 +55,10 @@ bookingRoutes.get("/availability", async (c) => {
 
   const { data: clinic } = await db
     .from("clinics")
-    .select("id, booking_mode")
+    .select("id, booking_mode, status")
     .eq("slug", slug)
     .maybeSingle();
-  if (!clinic) throw notFound("Clinic not found.");
+  if (!clinic || clinic.status !== "active") throw notFound("Clinic not found.");
   if (clinic.booking_mode !== "live") {
     return c.json({ mode: clinic.booking_mode, slots: [] });
   }
@@ -105,10 +105,11 @@ bookingRoutes.post("/book", async (c) => {
 
   const { data: clinic } = await db
     .from("clinics")
-    .select("id, name, booking_mode")
+    .select("id, name, booking_mode, status")
     .eq("slug", body.clinic_slug)
     .maybeSingle();
   if (!clinic) throw notFound("Clinic not found.");
+  if (clinic.status !== "active") throw badRequest("This clinic isn't live yet.");
   const isLive = clinic.booking_mode === "live";
 
   // Optional practitioner (must belong to this clinic).

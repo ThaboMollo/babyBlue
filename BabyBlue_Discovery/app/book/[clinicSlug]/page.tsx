@@ -25,7 +25,12 @@ export default async function BookPage({
   const { clinicSlug } = await params;
   const { dr } = await searchParams;
   const supabase = await createClient();
-  const { data: clinic } = await supabase.from("clinics").select("*").eq("slug", clinicSlug).maybeSingle();
+  const { data: clinic } = await supabase
+    .from("clinics")
+    .select("*")
+    .eq("slug", clinicSlug)
+    .eq("status", "active")
+    .maybeSingle();
   if (!clinic) notFound();
   const { data: practitioners } = await supabase
     .from("practitioners")

@@ -7,8 +7,12 @@ export async function GET() {
   const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3002";
   const supabase = await createClient();
   const [{ data: clinics }, { data: practitioners }] = await Promise.all([
-    supabase.from("clinics").select("name, slug, city"),
-    supabase.from("practitioners").select("first_name, last_name, slug, specialty").eq("is_active", true),
+    supabase.from("clinics").select("name, slug, city").eq("status", "active"),
+    supabase
+      .from("practitioners")
+      .select("first_name, last_name, slug, specialty, clinics!inner(status)")
+      .eq("is_active", true)
+      .eq("clinics.status", "active"),
   ]);
 
   const lines = [

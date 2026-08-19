@@ -7,8 +7,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3002";
   const supabase = await createClient();
   const [{ data: clinics }, { data: practitioners }] = await Promise.all([
-    supabase.from("clinics").select("slug"),
-    supabase.from("practitioners").select("slug").eq("is_active", true),
+    supabase.from("clinics").select("slug").eq("status", "active"),
+    supabase
+      .from("practitioners")
+      .select("slug, clinics!inner(status)")
+      .eq("is_active", true)
+      .eq("clinics.status", "active"),
   ]);
 
   return [

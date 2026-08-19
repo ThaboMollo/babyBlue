@@ -9,7 +9,12 @@ export const revalidate = 300;
 
 async function loadClinic(slug: string) {
   const supabase = await createClient();
-  const { data: clinic } = await supabase.from("clinics").select("*").eq("slug", slug).maybeSingle();
+  const { data: clinic } = await supabase
+    .from("clinics")
+    .select("*")
+    .eq("slug", slug)
+    .eq("status", "active")
+    .maybeSingle();
   if (!clinic) return null;
   const [{ data: practitioners }, { data: services }] = await Promise.all([
     supabase.from("practitioners").select("*").eq("clinic_id", clinic.id).eq("is_active", true),

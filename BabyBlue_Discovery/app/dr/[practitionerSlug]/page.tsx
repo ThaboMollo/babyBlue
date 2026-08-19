@@ -15,9 +15,10 @@ async function loadPractitioner(slug: string): Promise<Row | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("practitioners")
-    .select("*, clinics(*)")
+    .select("*, clinics!inner(*)")
     .eq("slug", slug)
     .eq("is_active", true)
+    .eq("clinics.status", "active")
     .limit(1)
     .maybeSingle();
   return (data as Row) ?? null;

@@ -34,6 +34,7 @@ export function createApp() {
   app.route("/v1/admin", adminRoutes);
   app.route("/v1/people", peopleRoutes);
   app.route("/v1/booking", bookingRoutes);
+  app.route("/v1/platform", platformRoutes);
 
   // Uniform error rendering. ApiError/HTTPException carry their own JSON
   // response; anything else is an unexpected 500 (logged, not leaked).

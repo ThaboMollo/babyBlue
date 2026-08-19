@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -19,10 +19,21 @@ export default function OnboardingPage() {
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [avgMinutes, setAvgMinutes] = useState("10");
-  const [fullName, setFullName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [clinicId, setClinicId] = useState<string | null>(null);
+
+  // Prefill the admin's name from what they entered at signup (user_metadata).
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      const meta = user?.user_metadata as { first_name?: string; last_name?: string } | undefined;
+      if (meta?.first_name) setFirstName(meta.first_name);
+      if (meta?.last_name) setLastName(meta.last_name);
+    });
+  }, []);
 
   function handleNameChange(val: string) {
     setClinicName(val);
@@ -106,7 +117,8 @@ export default function OnboardingPage() {
       id: user.id,
       clinic_id: clinicId,
       role: "admin",
-      full_name: fullName || null,
+      first_name: firstName.trim() || null,
+      last_name: lastName.trim() || null,
     });
 
     if (profileError) {
@@ -260,20 +272,36 @@ export default function OnboardingPage() {
             </p>
 
             <form onSubmit={handleCreateProfile} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[#0F172A] mb-1">
-                  Full name
-                </label>
-                <input
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-lg border border-[#E2E8F0] text-sm focus:outline-none focus:ring-2 focus:ring-[#0B5AA8]"
-                  placeholder="Dr. Jane Smith"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-[#0F172A] mb-1">
+                    First name
+                  </label>
+                  <input
+                    required
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-lg border border-[#E2E8F0] text-sm focus:outline-none focus:ring-2 focus:ring-[#0B5AA8]"
+                    placeholder="Jane"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#0F172A] mb-1">
+                    Last name
+                  </label>
+                  <input
+                    required
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-lg border border-[#E2E8F0] text-sm focus:outline-none focus:ring-2 focus:ring-[#0B5AA8]"
+                    placeholder="Smith"
+                  />
+                </div>
               </div>
 
               <p className="text-sm text-[#475569] bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-                You will be set as <strong>Admin</strong> for your clinic.
+                You&apos;ll be set as <strong>Admin</strong>. Your clinic is created
+                as <strong>pending</strong> and goes live once it&apos;s approved.
               </p>
 
               {error && (

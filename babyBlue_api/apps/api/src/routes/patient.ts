@@ -87,13 +87,14 @@ patientRoutes.post("/join-queue", async (c) => {
   const idNumber = normaliseIdNumber(idType, rawIdNumber);
   const derivedDob = identity.derivedDob;
 
-  // 1. Clinic by slug
+  // 1. Clinic by slug — must be live (approved by a Super Admin).
   const { data: clinic, error: clinicError } = await db
     .from("clinics")
-    .select("id, name, slug")
+    .select("id, name, slug, status")
     .eq("slug", clinicSlug)
     .single();
   if (clinicError || !clinic) throw notFound("Clinic not found");
+  if (clinic.status !== "active") throw badRequest("This clinic isn't live yet.");
 
   // 1b. Per-IP rate limit: 20 joins/hour (§6.1)
   const clientIp =

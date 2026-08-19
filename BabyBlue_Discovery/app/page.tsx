@@ -19,18 +19,23 @@ export default async function HomePage({
   let practitioners: PractitionerRow[] = [];
   let clinics: Clinic[] = [];
 
+  // Only active (approved) clinics are public. For practitioners we use an inner
+  // join on clinics filtered to active, so a practitioner at a pending clinic
+  // stays hidden too.
   if (query) {
     const like = `%${query}%`;
     const [pr, cl] = await Promise.all([
       supabase
         .from("practitioners")
-        .select("*, clinics(name, slug, city)")
+        .select("*, clinics!inner(name, slug, city, status)")
         .eq("is_active", true)
+        .eq("clinics.status", "active")
         .or(`first_name.ilike.${like},last_name.ilike.${like},specialty.ilike.${like}`)
         .limit(20),
       supabase
         .from("clinics")
         .select("*")
+        .eq("status", "active")
         .or(`name.ilike.${like},city.ilike.${like},suburb.ilike.${like}`)
         .limit(20),
     ]);
@@ -38,8 +43,13 @@ export default async function HomePage({
     clinics = (cl.data as Clinic[]) ?? [];
   } else {
     const [pr, cl] = await Promise.all([
-      supabase.from("practitioners").select("*, clinics(name, slug, city)").eq("is_active", true).limit(12),
-      supabase.from("clinics").select("*").limit(12),
+      supabase
+        .from("practitioners")
+        .select("*, clinics!inner(name, slug, city, status)")
+        .eq("is_active", true)
+        .eq("clinics.status", "active")
+        .limit(12),
+      supabase.from("clinics").select("*").eq("status", "active").limit(12),
     ]);
     practitioners = (pr.data as PractitionerRow[]) ?? [];
     clinics = (cl.data as Clinic[]) ?? [];
