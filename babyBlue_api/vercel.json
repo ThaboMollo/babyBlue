@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "corepack enable && yarn install",
+  "buildCommand": "rm -rf packages/core/dist packages/core/*.tsbuildinfo apps/api/dist apps/api/*.tsbuildinfo && yarn workspace @babyblue/core build && yarn workspace @babyblue/api build",
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
+}
