@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack yarn install --immutable",
-  "buildCommand": "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && rm -rf packages/core/dist packages/core/*.tsbuildinfo && corepack yarn workspace @babyblue/core build && corepack yarn workspace @babyblue/api build && mkdir -p public",
+  "buildCommand": "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && rm -rf packages/core/dist packages/core/*.tsbuildinfo && corepack yarn workspace @babyblue/core build && corepack yarn workspace @babyblue/api build",
   "outputDirectory": "public",
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }
