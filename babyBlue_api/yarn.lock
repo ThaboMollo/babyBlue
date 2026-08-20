@@ -9,7 +9,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@babyblue/api@workspace:apps/api"
   dependencies:
-    "@babyblue/core": "workspace:^"
+    "@babyblue/core": "npm:^0.1.0"
     "@hono/node-server": "npm:^1.13.7"
     "@supabase/supabase-js": "npm:^2.97.0"
     "@types/node": "npm:^20"
@@ -19,7 +19,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@babyblue/core@workspace:^, @babyblue/core@workspace:packages/core":
+"@babyblue/core@npm:^0.1.0, @babyblue/core@workspace:packages/core":
   version: 0.0.0-use.local
   resolution: "@babyblue/core@workspace:packages/core"
   dependencies:
