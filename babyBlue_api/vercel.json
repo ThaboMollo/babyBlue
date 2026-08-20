@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "yarn install --immutable",
-  "buildCommand": "rm -rf packages/core/dist packages/core/*.tsbuildinfo apps/api/dist apps/api/*.tsbuildinfo && yarn workspace @babyblue/core build && yarn workspace @babyblue/api build",
+  "installCommand": "COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack yarn install --immutable",
+  "buildCommand": "rm -rf packages/core/dist packages/core/*.tsbuildinfo apps/api/dist apps/api/*.tsbuildinfo && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack yarn workspace @babyblue/core build && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack yarn workspace @babyblue/api build",
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }
